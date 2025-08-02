@@ -95,6 +95,29 @@ function wb_delete_weather_table()
     $wpdb->query("DROP TABLE IF EXISTS $table_name");
 }
 
+//  Page de réglages pour clé API
+add_action('admin_menu', function() {
+    add_options_page('Weather Block', 'Weather Block', 'manage_options', 'weather-block', 'wb_settings_page');
+});
+function wb_settings_page() {
+    ?>
+    <div class="wrap">
+        <h1>Weather Block - Réglages</h1>
+        <form method="post" action="options.php">
+            <?php
+                settings_fields('wb_settings_group');
+                do_settings_sections('wb_settings_group');
+            ?>
+            <label for="wb_api_key">Clé API WeatherAPI :</label>
+            <input type="text" id="wb_api_key" name="wb_api_key" value="<?php echo esc_attr(get_option('wb_api_key')); ?>" style="width: 400px;">
+            <?php submit_button('Enregistrer la clé API'); ?>
+        </form>
+    </div>
+    <?php
+}
+add_action('admin_init', function() {
+    register_setting('wb_settings_group', 'wb_api_key');
+});
 
 // AJAX handler pour récupérer la météo
 add_action('wp_ajax_get_weather_data', 'wb_get_weather_data');         // Pour admin connecté
@@ -128,11 +151,17 @@ function wb_get_weather_data() {
     if ($weather) {
         // ✅ Retourner la météo depuis la base
         wp_send_json_success($weather);
-    }
+    } 
 
     // 2️⃣ Sinon, appeler WeatherAPI
-    $api_key = '7a3383d971da4775b4462059250208'; 
+     // Clé API depuis réglages
+    $api_key = get_option('wb_api_key');
+    if (empty($api_key)) {
+        wp_send_json_error('Clé API manquante. Configurez-la dans Réglages > Weather Block.');
+    }
     $response = wp_remote_get("http://api.weatherapi.com/v1/current.json?key=$api_key&q={$lat},{$lon}&lang=fr");
+    error_log("📡 Appel à WeatherAPI pour {$lat}, {$lon}");
+
 
     if (is_wp_error($response)) {
         wp_send_json_error('Erreur API.');
