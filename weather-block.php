@@ -2,7 +2,7 @@
 /*
 Plugin Name: Weather Block
 Description: Plugin WordPress qui ajoute un bloc Gutenberg pour afficher la météo en fonction de la localisation de l’utilisateur.
-Version: 1.0
+Version: 1.2
 Author: Odolin
 */
 
@@ -69,11 +69,12 @@ function wb_create_weather_table()
         lat decimal(10,6) NOT NULL,
         lon decimal(10,6) NOT NULL,
         date date NOT NULL,
+        hour tinyint(2) NOT NULL,
         temperature varchar(10) NOT NULL,
         weather_condition varchar(100) NOT NULL,
         icon varchar(255) NOT NULL,
         PRIMARY KEY  (id),
-        UNIQUE KEY city_date (city, date)
+        UNIQUE KEY city_date (city, date, hour)
     ) $charset_collate;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
@@ -96,26 +97,28 @@ function wb_delete_weather_table()
 }
 
 //  Page de réglages pour clé API
-add_action('admin_menu', function() {
+add_action('admin_menu', function () {
     add_options_page('Weather Block', 'Weather Block', 'manage_options', 'weather-block', 'wb_settings_page');
 });
-function wb_settings_page() {
-    ?>
+function wb_settings_page()
+{
+?>
     <div class="wrap">
         <h1>Weather Block - Réglages</h1>
         <form method="post" action="options.php">
             <?php
-                settings_fields('wb_settings_group');
-                do_settings_sections('wb_settings_group');
+            settings_fields('wb_settings_group');
+            do_settings_sections('wb_settings_group');
             ?>
             <label for="wb_api_key">Clé API WeatherAPI :</label>
             <input type="text" id="wb_api_key" name="wb_api_key" value="<?php echo esc_attr(get_option('wb_api_key')); ?>" style="width: 400px;">
             <?php submit_button('Enregistrer la clé API'); ?>
         </form>
     </div>
-    <?php
+<?php
 }
-add_action('admin_init', function() {
+
+add_action('admin_init', function () {
     register_setting('wb_settings_group', 'wb_api_key');
 });
 
@@ -123,7 +126,9 @@ add_action('admin_init', function() {
 add_action('wp_ajax_get_weather_data', 'wb_get_weather_data');         // Pour admin connecté
 add_action('wp_ajax_nopriv_get_weather_data', 'wb_get_weather_data');   // Pour visiteurs
 
-function wb_get_weather_data() {
+function wb_get_weather_data()
+{
+    
     global $wpdb;
     $table_name = $wpdb->prefix . 'weather_data';
 
@@ -131,36 +136,43 @@ function wb_get_weather_data() {
     $lat = floatval($_POST['lat']);
     $lon = floatval($_POST['lon']);
     $date_today = date('Y-m-d');
+    $current_hour = intval(date('G')); // Heure actuelle (0-23)
 
-     // Tolérance en degrés (±0.01 ≈ ~1 km)
+    // Tolérance en degrés (±0.01 ≈ ~1 km)
     $tolerance = 0.01;
 
-     // 1️⃣ Vérifier si la météo existe déjà dans la base pour cette zone
+    // Vérifier si la météo existe déjà dans la base pour cette zone
     $weather = $wpdb->get_row(
         $wpdb->prepare(
             "SELECT * FROM $table_name 
              WHERE ABS(lat - %f) <= %f 
              AND ABS(lon - %f) <= %f 
-             AND date = %s",
-            $lat, $tolerance,
-            $lon, $tolerance,
-            $date_today
+             AND date = %s AND hour = %d",
+            $lat,
+            $tolerance,
+            $lon,
+            $tolerance,
+            $date_today,
+            $current_hour
         )
     );
 
     if ($weather) {
-        // ✅ Retourner la météo depuis la base
+        // Retourner la météo depuis la base
         wp_send_json_success($weather);
-    } 
+    }
 
-    // 2️⃣ Sinon, appeler WeatherAPI
-     // Clé API depuis réglages
+    // Sinon, appeler WeatherAPI
+    // Clé API depuis réglages
     $api_key = get_option('wb_api_key');
     if (empty($api_key)) {
         wp_send_json_error('Clé API manquante. Configurez-la dans Réglages > Weather Block.');
     }
-    $response = wp_remote_get("http://api.weatherapi.com/v1/current.json?key=$api_key&q={$lat},{$lon}&lang=fr");
-    error_log("📡 Appel à WeatherAPI pour {$lat}, {$lon}");
+
+    // Appel à l'API WeatherAPI
+    // On utilise la clé API et les coordonnées
+    // Langue française
+    $response = wp_remote_get("http://api.weatherapi.com/v1/forecast.json?key=$api_key&q={$lat},{$lon}&days=1&lang=fr");
 
 
     if (is_wp_error($response)) {
@@ -178,26 +190,31 @@ function wb_get_weather_data() {
     $temperature = $data->current->temp_c;
     $condition = $data->current->condition->text;
     $icon = $data->current->condition->icon;
+    $forecast_hours = $data->forecast->forecastday[0]->hour;
 
-     // 3️⃣ Enregistrer dans la base
-    $wpdb->insert($table_name, array(
-        'lat'              => $lat,
-        'lon'              => $lon,
-        'date'             => $date_today,
-        'city'             => $city,
-        'temperature'      => $temperature,
-        'weather_condition'=> $condition,
-        'icon'             => $icon
-    ));
+    // Enregistrer dans la base les météo de 24 heures
+    foreach ($forecast_hours as $hour_data) {
+        $hour_time = intval(date('G', strtotime($hour_data->time)));
+        $wpdb->insert($table_name, array(
+            'lat'              => $lat,
+            'lon'              => $lon,
+            'date'             => $date_today,
+            'hour'             => $hour_time,
+            'city'             => $city,
+            'temperature'      => $hour_data->temp_c,
+            'weather_condition'=> $hour_data->condition->text,
+            'icon'             => $hour_data->condition->icon
+        ));
+    }
 
-     // 4️⃣ Retourner la météo
-    wp_send_json_success(array(
-        'city'        => $city,
-        'temperature' => $temperature,
-        'condition'   => $condition,
-        'icon'        => $icon
-    ));
+    // Retourner météo de l’heure actuelle
+    $current_weather = $wpdb->get_row(
+        $wpdb->prepare(
+            "SELECT * FROM $table_name 
+             WHERE city = %s AND date = %s AND hour = %d",
+            $city, $date_today, $current_hour
+        )
+    );
+
+    wp_send_json_success($current_weather);
 }
-
-
-

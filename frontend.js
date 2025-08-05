@@ -9,8 +9,6 @@ document.addEventListener("DOMContentLoaded", () => {
           const lat = position.coords.latitude;
           const lon = position.coords.longitude;
 
-          console.log("Latitude:", lat, "Longitude:", lon);
-
           // 🔹 Envoi à WordPress pour vérifier/cache ou appeler API
           fetch(wb_ajax.ajax_url, {
             method: "POST",
@@ -47,7 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                       )}</p>
                       <img src="${w.icon}" alt="${
-                        w.condition
+                        w.weather_condition
                       }" style="width:64px;height:64px;" />
                       <p style="font-size:16px; margin:5px 0;"><strong>${
                         w.weather_condition
