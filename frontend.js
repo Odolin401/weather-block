@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
         async (position) => {
           const lat = position.coords.latitude;
           const lon = position.coords.longitude;
+          const localHour = new Date().getHours();
 
           // 🔹 Envoi à WordPress pour vérifier/cache ou appeler API
           fetch(wb_ajax.ajax_url, {
@@ -17,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
               action: "get_weather_data",
               lat: lat,
               lon: lon,
+              hour: localHour,
             }),
           })
             .then((res) => res.json())

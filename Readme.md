@@ -1,4 +1,4 @@
-# Weather Block - Plugin WordPress 🌤️
+# Weather Block - Plugin WordPress v1.7 🌤️
 
 ## 📌 Description
 Weather Block est un plugin WordPress qui ajoute un bloc Gutenberg pour afficher la météo en fonction de la localisation des visiteurs.  

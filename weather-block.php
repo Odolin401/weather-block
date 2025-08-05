@@ -2,7 +2,7 @@
 /*
 Plugin Name: Weather Block
 Description: Plugin WordPress qui ajoute un bloc Gutenberg pour afficher la météo en fonction de la localisation de l’utilisateur.
-Version: 1.2
+Version: 1.7
 Author: Odolin
 */
 
@@ -128,7 +128,7 @@ add_action('wp_ajax_nopriv_get_weather_data', 'wb_get_weather_data');   // Pour 
 
 function wb_get_weather_data()
 {
-    
+
     global $wpdb;
     $table_name = $wpdb->prefix . 'weather_data';
 
@@ -136,7 +136,9 @@ function wb_get_weather_data()
     $lat = floatval($_POST['lat']);
     $lon = floatval($_POST['lon']);
     $date_today = date('Y-m-d');
-    $current_hour = intval(date('G')); // Heure actuelle (0-23)
+    $current_hour = isset($_POST['hour']) ? intval($_POST['hour']) : intval(date('G')); // Heure locale ou actuelle
+
+
 
     // Tolérance en degrés (±0.01 ≈ ~1 km)
     $tolerance = 0.01;
@@ -185,7 +187,10 @@ function wb_get_weather_data()
         wp_send_json_error('Localisation introuvable.');
     }
 
+
+
     // Données utiles
+
     $city = $data->location->name;
     $temperature = $data->current->temp_c;
     $condition = $data->current->condition->text;
@@ -202,7 +207,7 @@ function wb_get_weather_data()
             'hour'             => $hour_time,
             'city'             => $city,
             'temperature'      => $hour_data->temp_c,
-            'weather_condition'=> $hour_data->condition->text,
+            'weather_condition' => $hour_data->condition->text,
             'icon'             => $hour_data->condition->icon
         ));
     }
@@ -212,9 +217,44 @@ function wb_get_weather_data()
         $wpdb->prepare(
             "SELECT * FROM $table_name 
              WHERE city = %s AND date = %s AND hour = %d",
-            $city, $date_today, $current_hour
+            $city,
+            $date_today,
+            $current_hour
         )
     );
 
     wp_send_json_success($current_weather);
 }
+
+// Planifier le cron lors de l'activation du plugin
+register_activation_hook(__FILE__, function () {
+    if (!wp_next_scheduled('wb_cleanup_weather_data')) {
+        // Heure locale
+        $heure_locale = 0; 
+        $decalage_secondes = 3 * HOUR_IN_SECONDS; 
+
+        // Calcul du prochain timestamp UTC correspondant à minuit Madagascar
+        $timestamp_local = strtotime('tomorrow ' . $heure_locale . ':00') - $decalage_secondes;
+
+        wp_schedule_event($timestamp_local, 'daily', 'wb_cleanup_weather_data');
+    }
+});
+
+
+// Fonction exécutée par le cron
+add_action('wb_cleanup_weather_data', function () {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'weather_data';
+    // Supprimer les données météo de plus de 3 jours  
+    $wpdb->query(
+        "DELETE FROM $table_name 
+         WHERE date < (CURDATE() - INTERVAL 3 DAY)"
+    );
+});
+
+// Nettoyer le cron à la désactivation du plugin
+register_deactivation_hook(__FILE__, function () {
+    // Supprime la tâche planifiée quand on désactive le plugin
+    wp_clear_scheduled_hook('wb_cleanup_weather_data');
+});
+
